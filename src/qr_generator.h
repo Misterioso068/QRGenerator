@@ -1,0 +1,4 @@
+#ifndef QR_GENERATOR_H
+#define QR_GENERATOR_H
+
+#endif // QR_GENERATOR_H
