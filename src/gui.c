@@ -4,7 +4,7 @@
 GUI* create_gui(const char *title, int width, int height) {
     GUI *gui = malloc(sizeof(GUI));
 
-    gui->window   = SDL_CreateWindow(title, width, height, 0);
+    gui->window   = SDL_CreateWindow(title, width, height, SDL_WINDOW_RESIZABLE);
     gui->renderer = SDL_CreateRenderer(gui->window, NULL);
 
     return gui;

@@ -274,6 +274,28 @@ static void place_dark_module(uint8_t **grid, int size, int version) {
     grid[row][col] = 1;
 }
 
+static void place_version_string(uint8_t **grid, int size, int version) {
+    if (version < 7) return;
+
+    const char *ver = QR_VERSION_STRINGS[version - 7];
+
+    printf("Version String: %s\n\n", ver);
+
+    // bottom left block
+    for (int i = 0; i < 18; i++) {
+        int row = (size - 11) + (i % 3);
+        int col = i / 3;  // left to right
+        grid[row][col] = ver[17 - i] - '0';
+    }
+
+    // top right block
+    for (int i = 0; i < 18; i++) {
+        int row = i / 3; // top to bottom
+        int col = (size - 11) + (i % 3);
+        grid[row][col] = ver[17 - i] - '0';
+    }
+}
+
 static void mark_visited(uint8_t **visited, int size, int version) {
     // top left finder + separator (8x8)
     for (int r = 0; r < 8; r++)
@@ -308,6 +330,16 @@ static void mark_visited(uint8_t **visited, int size, int version) {
 
     // dark module
     visited[size - 8][8] = 1;
+
+    // Version string information
+    if (version >= 7) {
+        for (int r = size - 11; r < size - 8; r++)
+            for (int c = 0; c < 6; c++)
+                visited[r][c] = 1;
+        for (int r = 0; r < 6; r++)
+            for (int c = size - 11; c < size - 8; c++)
+                visited[r][c] = 1;
+    } 
 }
 
 // places finder patterns, timing, dark module etc
@@ -338,6 +370,9 @@ static void place_function_patterns(uint8_t **grid, uint8_t **visited, int size,
 
     // Place Dark Module
     place_dark_module(grid, size, version);
+
+    // Place version information string if version >= 7
+    if (version >= 7) place_version_string(grid, size, version);
 }
 
 static void place_data(uint8_t **grid, uint8_t **visited, int size, uint8_t *final, int final_size) {
