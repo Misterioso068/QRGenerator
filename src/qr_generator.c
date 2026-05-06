@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <limits.h>
 
 #include "qr_generator.h"
 #include "qr_capacity.h"
@@ -127,22 +128,36 @@ static uint8_t* build_final_sequence(uint8_t *codewords, const qr_ec_block_info_
 
     int data_cw   = block_info->total_codewords;
     int ec_cw     = block_info->ec_per_block;
-    int final_size = data_cw + ec_cw;
+    int final_size = data_cw + (ec_cw * total_blocks);
     *out_final_size = final_size;
 
     uint8_t *final = malloc(final_size);
-    memcpy(final, codewords, data_cw);
+    int pos = 0;
 
-    for (int i = 0; i < total_blocks; i++) {
-        int block_size = (i < block_info->g1_blocks)
-                       ? block_info->g1_data
-                       : block_info->g2_data;
-
-        Polynomial ec = reed_solomon_ecc(blocks[i], block_size, block_info->ec_per_block);
-        memcpy(final + data_cw + (i * ec_cw), ec.coef, ec_cw);
-        destroy_poly(&ec);
+    // interleave data codewords
+    int max_block_size = (block_info->g2_blocks > 0) ? block_info->g2_data : block_info->g1_data;
+    for (int byte = 0; byte < max_block_size; byte++) {
+        for (int b = 0; b < total_blocks; b++) {
+            int bsize = (b < block_info->g1_blocks) ? block_info->g1_data : block_info->g2_data;
+            if (byte < bsize)
+                final[pos++] = blocks[b][byte];
+        }
     }
 
+    // interleave EC codewords
+    Polynomial *ec_blocks = malloc(total_blocks * sizeof(Polynomial));
+    for (int i = 0; i < total_blocks; i++) {
+        int block_size = (i < block_info->g1_blocks) ? block_info->g1_data : block_info->g2_data;
+        ec_blocks[i] = reed_solomon_ecc(blocks[i], block_size, ec_cw);
+    }
+    for (int byte = 0; byte < ec_cw; byte++) {
+        for (int b = 0; b < total_blocks; b++) {
+            final[pos++] = ec_blocks[b].coef[byte];
+        }
+    }
+
+    for (int i = 0; i < total_blocks; i++) destroy_poly(&ec_blocks[i]);
+    free(ec_blocks);
     free(blocks);
     return final;
 }
@@ -189,6 +204,45 @@ static void place_finder(uint8_t **grid, int row, int col) {
     for (int r = 2; r < 5; r++) {
         for (int c = 2; c < 5; c++) {
             grid[row + r][col + c] = 1;
+        }
+    }
+}
+
+static void place_alignment(uint8_t **grid, int cx, int cy) {
+    // outer ring 5x5 dark
+    for (int i = -2; i <= 2; i++) {
+        grid[cx - 2][cy + i] = 1;
+        grid[cx + 2][cy + i] = 1;
+        grid[cx + i][cy - 2] = 1;
+        grid[cx + i][cy + 2] = 1;
+    }
+    // inner 3x3 light
+    for (int r = -1; r <= 1; r++)
+        for (int c = -1; c <= 1; c++)
+            grid[cx + r][cy + c] = 0;
+    // center dark
+    grid[cx][cy] = 1;
+}
+
+static inline void place_alignments(uint8_t **grid, uint8_t **visited, int size, int version) {
+    const int *pos = QR_ALIGNMENT_POSITIONS[version - 1];
+    if (pos[0] == 0) return;  // version 1, no alignments
+
+    for (int i = 0; pos[i] != 0; i++) {
+        for (int j = 0; pos[j] != 0; j++) {
+            int cx = pos[i];
+            int cy = pos[j];
+
+            // skip if overlaps finder patterns
+            if (cx <= 8 && cy <= 8) continue;         // top left
+            if (cx <= 8 && cy >= size - 8) continue;  // top right
+            if (cx >= size - 8 && cy <= 8) continue;  // bottom left
+
+            place_alignment(grid, cx, cy);
+            // mark visited - 5x5 around center
+            for (int r = -2; r <= 2; r++)
+                for (int c = -2; c <= 2; c++)
+                    visited[cx + r][cy + c] = 1;
         }
     }
 }
@@ -276,6 +330,9 @@ static void place_function_patterns(uint8_t **grid, uint8_t **visited, int size,
     place_finder(grid, 0, size - 7);    // top right
     place_finder(grid, size - 7, 0);    // bottom left
 
+    // Place alignment patterns
+    place_alignments(grid, visited, size, version);
+
     // Draw dummy format bits
     place_dummy_format_bits(grid, size);
 
@@ -336,35 +393,153 @@ static void apply_mask(uint8_t **grid, uint8_t **visited, int size, int mask) {
     }
 }
 
+static int score_mask(uint8_t **grid, int size) {
+    int penalty = 0;
+    /*
+        horizontal runs with same color and length 5 or more
+        5 length is penalty 3
+        6 length is penalty 4
+        and so on.
+    */
+    for (int i = 0; i < size; i++) {
+        int j = 0;
+        while (j < size) {
+            int run = 1;
+            while (j + run < size && grid[i][j + run] == grid[i][j]) run++;
+            if (run >= 5) penalty += 3 + (run - 5);
+            j += run;
+        }
+    }
+    /*
+        vertical runs with same color and length 5 or more
+        5 length is penalty 3
+        6 length is penalty 4
+        and so on.
+    */
+    for (int i = 0; i < size; i++) {
+        int j = 0;
+        while (j < size) {
+            int run = 1;
+            while (j + run < size && grid[j + run][i] == grid[j][i]) run++;
+            if (run >= 5) penalty += 3 + (run - 5);
+            j += run;
+        }
+    }
+
+    /*
+        2x2 boxes with same color cells
+    */
+    for (int i = 0; i < size - 1; i++) {
+        for (int j = 0; j < size - 1; j++) {
+            uint8_t color = grid[i][j];
+            if (grid[i][j + 1] == color &&
+                grid[i + 1][j] == color &&
+                grid[i + 1][j + 1] == color) {
+                penalty += 3;
+            }
+        }
+    }
+
+    /*
+        Finder pattern penalty
+        if one of the patterns match penalty is 40
+    */
+    int finder_penalty = 0;
+    int pattern1[] = {1,0,1,1,1,0,1,0,0,0,0};
+    int pattern2[] = {0,0,0,0,1,0,1,1,1,0,1};
+    // check horizontal
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j <= size - 11; j++) {
+            int match1 = 1, match2 = 1;
+            for (int k = 0; k < 11; k++) {
+                uint8_t cell = grid[i][j + k];
+                if (cell != pattern1[k]) match1 = 0;
+                if (cell != pattern2[k]) match2 = 0;
+            }
+            if (match1 || match2) penalty += 40;
+        }
+    }
+    // check vertical
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j <= size - 11; j++) {
+            int match1 = 1, match2 = 1;
+            for (int k = 0; k < 11; k++) {
+                uint8_t cell = grid[j + k][i];
+                if (cell != pattern1[k]) match1 = 0;
+                if (cell != pattern2[k]) match2 = 0;
+            }
+            if (match1 || match2) penalty += 40;
+        }
+    }
+
+    /*
+        Balance of dark/light modules
+        0 points if the proportion of dark modules is in the range [45%, 55%]; 
+        10 points if within [40%, 60%]; 
+        20 points if within [35%, 65%]; 
+        30 points if within [30%, 70%]; 
+        etc.
+    */
+    // count dark modules
+    int dark_count = 0;
+    int total_count = 0;
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            if (grid[i][j] == 1) dark_count++;
+            total_count++;
+        }
+    }
+    int percent = (int)((float)dark_count / total_count * 100.0f);
+    int prev5 = percent / 5 * 5;
+    int next5 = prev5 + 5;
+    int diff = (abs(prev5 - 50) < abs(next5 - 50)) ? abs(prev5 - 50) : abs(next5 - 50);
+    penalty += (diff / 5) * 10;
+
+    return penalty;
+}
+
+static int apply_best_mask(uint8_t **grid, uint8_t **visited, int size) {
+    int best_mask = 0;
+    int lowest_penalty = INT_MAX;
+    for (int i = 0; i < 8; i++) {
+        apply_mask(grid, visited, size, i);
+        int penalty = score_mask(grid, size);
+        if (penalty < lowest_penalty) {
+            lowest_penalty = penalty;
+            best_mask = i;
+        }
+        apply_mask(grid, visited, size, i);
+    }
+    apply_mask(grid, visited, size, best_mask);
+    return best_mask;
+}
+
 static void place_format_string(uint8_t **grid, int size, qr_ecl_t ecl, int mask) {
     const char *fmt = QR_FORMAT_STRINGS[ecl][mask];
 
+    printf("fmt: %s\n", fmt);
     // Location 1 - around top left finder
     // horizontal: row 8, cols 0-8 (skipping col 6)
     int col_positions[] = {0, 1, 2, 3, 4, 5, 7, 8};  // skip col 6
-    for (int i = 0; i < 6; i++) {
-        grid[8][col_positions[i]] = fmt[14 - i] - '0';
+    for (int i = 0; i < 8; i++) {
+        grid[8][col_positions[i]] = fmt[i] - '0';
     }
-    grid[8][7] = fmt[8] - '0';
-    grid[8][8] = fmt[7] - '0';
 
     // vertical: rows 0-8 col 8 (skipping row 6)
     int row_positions[] = {0, 1, 2, 3, 4, 5, 7, 8};  // skip row 6
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 8; i++) {
         grid[row_positions[i]][8] = fmt[14 - i] - '0';
     }
-    grid[7][8] = fmt[8] - '0';
-    grid[8][8] = fmt[7] - '0';
 
     // Location 2 - top right and bottom left
-    // top right: row 8, cols size-8 to size-1
+    // bottom left: rows size-7 to size-1, col 8
     for (int i = 0; i < 8; i++) {
-        grid[8][size - 8 + i] = fmt[i] - '0';
+        grid[size - i - 1][8] = fmt[i] - '0';
     }
 
-    // bottom left: rows size-7 to size-1, col 8
-    for (int i = 0; i < 7; i++) {
-        grid[size - 7 + i][8] = fmt[14 - i] - '0';
+    // top right: row 8, cols size-8 to size-1
+    for (int i = 0; i < 8; i++) {
+        grid[8][size - 8 + i] = fmt[7 + i] - '0';
     }
 }
 
@@ -379,6 +554,8 @@ uint8_t** create_qr(const UserInput *userIn, int *out_size) {
     const qr_ec_block_info_t *block_info = qr_get_ec_blocks(version, userIn->ecl);
     int total_codewords = block_info->total_codewords;
 
+    printf("Version: %d, total_blocks: %d\n", version, block_info->g1_blocks + block_info->g2_blocks);
+
     uint8_t *codewords = encode_data(userIn, version, total_codewords);
     if (!codewords) return NULL;
 
@@ -391,9 +568,9 @@ uint8_t** create_qr(const UserInput *userIn, int *out_size) {
     mark_visited(visited, *out_size, version);
     place_function_patterns(grid, visited, *out_size, version);
     place_data(grid, visited, *out_size, final, final_size);
-
-    int mask = 3;
-    apply_mask(grid, visited, *out_size, mask);
+    
+    int mask = apply_best_mask(grid, visited, *out_size);
+    printf("mask: %d\n", mask);
     place_format_string(grid, *out_size, userIn->ecl, mask);
 
     print_bits(codewords, total_codewords * 8);
@@ -405,6 +582,8 @@ uint8_t** create_qr(const UserInput *userIn, int *out_size) {
     printf("EC Per block: %d\n", block_info->ec_per_block);
     print_grid(grid, *out_size);
 
+    for (int i = 0; i < *out_size; i++) free(visited[i]);
+    free(visited);
     free(codewords);
     free(final);
     return grid;
