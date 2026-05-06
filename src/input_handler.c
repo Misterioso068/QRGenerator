@@ -17,13 +17,36 @@ static int validate_ecl_input(const char *ecl) {
     return -1;
 }
 
-// Expected Input Example: ./build/main -M byte -L M
-int parse_input(int argc, char* argv[], UserInput *args) {
+static qr_mode_t parse_encoding(const char *mode) {
+    if (strcmp(mode, "numeric") == 0)      return QR_MODE_NUMERIC;
+    if (strcmp(mode, "alphanumeric") == 0) return QR_MODE_ALPHANUMERIC;
+    if (strcmp(mode, "byte") == 0)         return QR_MODE_BYTE;
+    if (strcmp(mode, "kanji") == 0)        return QR_MODE_KANJI;
+    return -1;
+}
+
+static qr_ecl_t parse_ecl(const char *ecl) {
+    if (strcmp(ecl, "L") == 0) return QR_ECL_L;
+    if (strcmp(ecl, "M") == 0) return QR_ECL_M;
+    if (strcmp(ecl, "Q") == 0) return QR_ECL_Q;
+    if (strcmp(ecl, "H") == 0) return QR_ECL_H;
+    return -1;
+}
+
+static void clear_args(UserInput *args) {
     // Reset input struct
-    args->encoding = NULL;
-    args->ecl = NULL;
+    args->data = NULL;
+    args->encoding = -1;
+    args->ecl = -1;
+    args->data_length = 0;
+    args->data_set = 0;
     args->encoding_set = 0;
     args->ecl_set = 0;
+}
+
+// Expected Input Example: ./build/main -M byte -L M
+int parse_input(int argc, char* argv[], UserInput *args) {
+    clear_args(args);
 
     if (argc <= 1) {
         arguments_not_provided();
@@ -37,7 +60,7 @@ int parse_input(int argc, char* argv[], UserInput *args) {
                 return -1;
             }
 
-            if (i + 1 >= argc) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-') {
                 missing_option_value("-M");
                 return -1;
             }
@@ -48,7 +71,7 @@ int parse_input(int argc, char* argv[], UserInput *args) {
                 return -1;
             }
 
-            args->encoding = encoding_type;
+            args->encoding = parse_encoding(encoding_type);
             args->encoding_set = 1;
             i++;
         }
@@ -58,7 +81,7 @@ int parse_input(int argc, char* argv[], UserInput *args) {
                 return -1;
             }
 
-            if (i + 1 >= argc) {
+            if (i + 1 >= argc || argv[i + 1][0] == '-') {
                 missing_option_value("-L");
                 return -1;
             }
@@ -69,8 +92,41 @@ int parse_input(int argc, char* argv[], UserInput *args) {
                 return -1;
             }
 
-            args->ecl = ecl;
+            args->ecl = parse_ecl(ecl);
             args->ecl_set = 1;
+            i++;
+        }
+        else if (strcmp(argv[i], "-D") == 0) {
+            if (args->data_set) {
+                duplicate_argument("-D");
+                return -1;
+            }
+
+            if (i + 1 >= argc || argv[i + 1][0] == '-') {
+                missing_option_value("-D");
+                return -1;
+            }
+
+            args->data = argv[i + 1];
+            args->data_length = strlen(argv[i + 1]);
+            args->data_set = 1;
+            i++;
+        }
+        else if (strcmp(argv[i], "--") == 0) {
+            // Malloc would be needed here right?
+            if (args->data_set) {
+                duplicate_argument("--");
+                return -1;
+            }
+
+            if (i + 1 >= argc) {
+                missing_option_value("--");
+                return -1;
+            }
+
+            args->data = argv[i + 1];
+            args->data_length = strlen(argv[i + 1]);
+            args->data_set = 1;
             i++;
         }
         else {
@@ -86,6 +142,11 @@ int parse_input(int argc, char* argv[], UserInput *args) {
 
     if (!args->ecl_set) {
         missing_required_argument("-L");
+        return -1;
+    }
+
+    if (!args->data_set) {
+        missing_required_argument("-D");
         return -1;
     }
 

@@ -4,13 +4,17 @@
 
 // Logger helpers
 static void print_args_key(void) {
-    fprintf(stderr, GRN "Arguments Key:\n");
-    fprintf(stderr, GRN "\t<encoding-type>: alphanumeric | numeric | byte | kanji\n" reset);
-    fprintf(stderr, GRN "\t<ecl_choice>: L | M | Q | H\n" reset);
+    fprintf(stderr, GRN "Arguments Key:\n" reset);
+    fprintf(stderr, GRN "\t-M <encoding-type> : alphanumeric | numeric | byte | kanji\n" reset);
+    fprintf(stderr, GRN "\t-L <ecl_choice>    : L | M | Q | H\n" reset);
+    fprintf(stderr, GRN "\t-D <data>          : data string to encode\n" reset);
+    fprintf(stderr, GRN "\t-- \"<data>\"        : data string (use if data starts with '-')\n" reset);
 }
 
 static void print_usage(void) {
-    fprintf(stderr, YEL "Correct usage examples: \n\t./build/main -M <encoding-type> -L <ecl_choice>\n\t./build/main -L <ecl_choice> -M <encoding-type>\n" reset);
+    fprintf(stderr, YEL "Correct usage examples:\n" reset);
+    fprintf(stderr, YEL "\t./build/qrgen -M <encoding-type> -L <ecl_choice> -D <data>\n" reset);
+    fprintf(stderr, YEL "\t./build/qrgen -M <encoding-type> -L <ecl_choice> -- \"<data>\"\n" reset);
 }
 
 static void print_help_menu(void) {
@@ -48,8 +52,7 @@ void missing_required_argument(const char *opt) {
 
 void duplicate_argument(const char *opt) {
     fprintf(stderr, RED "ERROR: Option '%s' specified multiple times\n" reset, opt);
-    print_usage();
-    print_args_key();
+    print_help_menu();
 }
 
 void invalid_encoding_type_argument(const char *mode) {
@@ -65,4 +68,12 @@ void invalid_ecl_argument(const char *ecl) {
 void unknown_argument(const char *input) {
     fprintf(stderr, RED "ERROR: Unknown argument '%s'\n" reset, input);
     print_help_menu();
+}
+
+void data_too_long(int data_length, int max_capacity) {
+    fprintf(stderr, RED "ERROR: Data length (%d) exceeds maximum QR code capacity (%d) for the selected encoding and ECL\n" reset, data_length, max_capacity);
+}
+
+void encoding_type_not_provided() {
+    fprintf(stderr, RED "ERROR: Encoding type was not provided.");
 }
