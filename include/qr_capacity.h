@@ -25,7 +25,8 @@ typedef enum {
     QR_MODE_NUMERIC      = 0,
     QR_MODE_ALPHANUMERIC = 1,
     QR_MODE_BYTE         = 2,
-    QR_MODE_KANJI        = 3
+    QR_MODE_KANJI        = 3,
+    QR_MODE_AUTO         = 4
 } qr_mode_t;
 
 /* [40 versions][4 ECLs][4 modes] */

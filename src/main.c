@@ -5,7 +5,7 @@
 #include "qr_generator.h"
 #include "gui.h"
 
-#define WINDOW_SIZE 500
+#define WINDOW_SIZE 800
 #define QUIET_ZONE 4
 
 int main(int argc, char* argv[]) {
@@ -16,11 +16,17 @@ int main(int argc, char* argv[]) {
 
     int size;
     uint8_t **qr_code = create_qr(&userIn, &size);
+    if (!qr_code) {
+        return -1;
+    }
 
     int total_modules = size + QUIET_ZONE * 2;
     int module_size = WINDOW_SIZE / total_modules;
 
     GUI *gui = create_gui("QR Code", WINDOW_SIZE, WINDOW_SIZE);
+    if (!gui) {
+        return -1;
+    }
     render_qr(gui, qr_code, size, module_size);
 
     int run = 1;

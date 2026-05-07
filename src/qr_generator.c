@@ -10,15 +10,6 @@
 #include "rs_encoding.h"
 #include "logger.h"
 
-static void write_bits(uint8_t *buf, int *bit_pos, int value, int num_bits) {
-    for (int i = num_bits - 1; i >= 0; i--) {
-        if (value & (1 << i)) {
-            buf[*bit_pos / 8] |= (1 << (7 - (*bit_pos % 8)));
-        }
-        (*bit_pos)++;
-    }
-}
-
 static void print_bits(uint8_t *buf, int num_bits) {
     for (int i = 0; i < num_bits; i++) {
         int byte_index = i / 8;
@@ -36,6 +27,51 @@ static void print_hex(uint8_t *buf, int num_bytes) {
     printf("\n");
 }
 
+static void write_bits(uint8_t *buf, int *bit_pos, int value, int num_bits) {
+    for (int i = num_bits - 1; i >= 0; i--) {
+        if (value & (1 << i)) {
+            buf[*bit_pos / 8] |= (1 << (7 - (*bit_pos % 8)));
+        }
+        (*bit_pos)++;
+    }
+}
+
+static void encode_numeric(uint8_t *codewords, int *bit_pos, const char *data, int length) {
+    int i = 0;
+    while (i + 2 < length) {
+        int val = (data[i] - '0') * 100 + (data[i+1] - '0') * 10 + (data[i+2] - '0');
+        write_bits(codewords, bit_pos, val, 10);
+        i += 3;
+    }
+    if (i + 1 < length) {
+        int val = (data[i] - '0') * 10 + (data[i+1] - '0');
+        write_bits(codewords, bit_pos, val, 7);
+        i += 2;
+    }
+    if (i < length) {
+        write_bits(codewords, bit_pos, data[i] - '0', 4);
+    }
+}
+
+static void encode_byte(uint8_t *codewords, int *bit_pos, const char *data) {
+    // Write Data Bits
+    for (int i = 0; data[i] != '\0'; i++) {
+        write_bits(codewords, bit_pos, data[i], 8);
+    }
+}
+
+static void encode_alphanumeric(uint8_t *codewords, int *bit_pos, const char *data, int length) {
+    int i = 0;
+    while (i + 1 < length) {
+        int val = (45 * ALPHANUMERIC_TABLE[data[i] - ' ']) + ALPHANUMERIC_TABLE[data[i+1] - ' '];
+        write_bits(codewords, bit_pos, val, 11);
+        i += 2;
+    }
+    if (i < length) {
+        write_bits(codewords, bit_pos, ALPHANUMERIC_TABLE[data[i] - ' '], 6);
+    }
+}
+
 static uint8_t* encode_data(const UserInput *userIn, int version, int total_codewords) {
     uint8_t *codewords = malloc(total_codewords * sizeof(*codewords));
     memset(codewords, 0, total_codewords);
@@ -51,6 +87,7 @@ static uint8_t* encode_data(const UserInput *userIn, int version, int total_code
                 write_bits(codewords, &bit_pos, userIn->data_length, 12);
             else
                 write_bits(codewords, &bit_pos, userIn->data_length, 14);
+            encode_numeric(codewords, &bit_pos, userIn->data, userIn->data_length);
             break;
 
         case QR_MODE_ALPHANUMERIC:
@@ -61,6 +98,7 @@ static uint8_t* encode_data(const UserInput *userIn, int version, int total_code
                 write_bits(codewords, &bit_pos, userIn->data_length, 11);
             else
                 write_bits(codewords, &bit_pos, userIn->data_length, 13);
+            encode_alphanumeric(codewords, &bit_pos, userIn->data, userIn->data_length);
             break;
 
         case QR_MODE_BYTE:
@@ -69,6 +107,7 @@ static uint8_t* encode_data(const UserInput *userIn, int version, int total_code
                 write_bits(codewords, &bit_pos, userIn->data_length, 8);
             else
                 write_bits(codewords, &bit_pos, userIn->data_length, 16);
+            encode_byte(codewords, &bit_pos, userIn->data);
             break;
 
         case QR_MODE_KANJI:
@@ -85,11 +124,6 @@ static uint8_t* encode_data(const UserInput *userIn, int version, int total_code
             encoding_type_not_provided();
             free(codewords);
             return NULL;
-    }
-
-    // Write Data Bits
-    for (int i = 0; userIn->data[i] != '\0'; i++) {
-        write_bits(codewords, &bit_pos, userIn->data[i], 8);
     }
 
     // Write Terminator Bits
@@ -133,7 +167,7 @@ static uint8_t* build_final_sequence(uint8_t *codewords, const qr_ec_block_info_
 
     uint8_t *final = malloc(final_size);
     int pos = 0;
-
+ 
     // interleave data codewords
     int max_block_size = (block_info->g2_blocks > 0) ? block_info->g2_data : block_info->g1_data;
     for (int byte = 0; byte < max_block_size; byte++) {
@@ -149,13 +183,23 @@ static uint8_t* build_final_sequence(uint8_t *codewords, const qr_ec_block_info_
     for (int i = 0; i < total_blocks; i++) {
         int block_size = (i < block_info->g1_blocks) ? block_info->g1_data : block_info->g2_data;
         ec_blocks[i] = reed_solomon_ecc(blocks[i], block_size, ec_cw);
+        
+        // pad if leading zero was trimmed
+        if (ec_blocks[i].coef_count < ec_cw) {
+            int diff = ec_cw - ec_blocks[i].coef_count;
+            uint8_t *padded = calloc(ec_cw, 1);
+            memcpy(padded + diff, ec_blocks[i].coef, ec_blocks[i].coef_count);
+            free(ec_blocks[i].coef);
+            ec_blocks[i].coef = padded;
+            ec_blocks[i].coef_count = ec_cw;
+        }
     }
     for (int byte = 0; byte < ec_cw; byte++) {
         for (int b = 0; b < total_blocks; b++) {
             final[pos++] = ec_blocks[b].coef[byte];
         }
     }
-
+    
     for (int i = 0; i < total_blocks; i++) destroy_poly(&ec_blocks[i]);
     free(ec_blocks);
     free(blocks);
@@ -578,6 +622,31 @@ static void place_format_string(uint8_t **grid, int size, qr_ecl_t ecl, int mask
     }
 }
 
+qr_mode_t detect_encoding(const char *data) {
+    int can_numeric = 1;
+    int can_alpha = 1;
+
+    for (int i = 0; data[i] != '\0'; i++) {
+        char c = data[i];
+
+        // numeric: only 0-9
+        if (c < '0' || c > '9') can_numeric = 0;
+
+        // alphanumeric: 0-9, A-Z, space, $%*+-./:
+        if (!((c >= '0' && c <= '9') ||
+              (c >= 'A' && c <= 'Z') ||
+              c == ' ' || c == '$' || c == '%' ||
+              c == '*' || c == '+' || c == '-' ||
+              c == '.' || c == '/' || c == ':')) {
+            can_alpha = 0;
+        }
+    }
+
+    if (can_numeric) return QR_MODE_NUMERIC;
+    if (can_alpha)   return QR_MODE_ALPHANUMERIC;
+    return QR_MODE_BYTE;
+}
+
 uint8_t** create_qr(const UserInput *userIn, int *out_size) {
     int version = qr_min_version(userIn->data_length, userIn->ecl, userIn->encoding);
     if (version == -1) {
@@ -589,13 +658,19 @@ uint8_t** create_qr(const UserInput *userIn, int *out_size) {
     const qr_ec_block_info_t *block_info = qr_get_ec_blocks(version, userIn->ecl);
     int total_codewords = block_info->total_codewords;
 
-    printf("Version: %d, total_blocks: %d\n", version, block_info->g1_blocks + block_info->g2_blocks);
-
     uint8_t *codewords = encode_data(userIn, version, total_codewords);
     if (!codewords) return NULL;
 
+    printf("Encoded: \n");
+    print_bits(codewords, total_codewords * 8);
+    print_hex(codewords, total_codewords);
+
     int final_size;
     uint8_t *final = build_final_sequence(codewords, block_info, &final_size);
+
+    printf("Build final sequence \n");
+    print_bits(codewords, total_codewords * 8);
+    print_hex(codewords, total_codewords);
 
     uint8_t **grid = create_grid(version, out_size);
     uint8_t **visited = create_grid(version, out_size); // grid to mark visited nodes
@@ -608,8 +683,6 @@ uint8_t** create_qr(const UserInput *userIn, int *out_size) {
     printf("mask: %d\n", mask);
     place_format_string(grid, *out_size, userIn->ecl, mask);
 
-    print_bits(codewords, total_codewords * 8);
-    print_hex(codewords, total_codewords);
     print_bits(final, final_size * 8);
     print_hex(final, final_size);
     printf("Version: %d, Total codewords: %d\n", version, total_codewords);

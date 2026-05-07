@@ -1,12 +1,14 @@
 #include <string.h>
 #include "input_handler.h"
 #include "logger.h"
+#include "qr_generator.h"
 
 static int validate_encoding_type_input(const char *mode) {
     if (strcmp(mode, "alphanumeric") == 0) return 0;
     if (strcmp(mode, "numeric") == 0)      return 0;
     if (strcmp(mode, "byte") == 0)         return 0;
     if (strcmp(mode, "kanji") == 0)        return 0;
+    if (strcmp(mode, "auto") == 0)         return 0;
     return -1;
 }
 static int validate_ecl_input(const char *ecl) {
@@ -22,6 +24,7 @@ static qr_mode_t parse_encoding(const char *mode) {
     if (strcmp(mode, "alphanumeric") == 0) return QR_MODE_ALPHANUMERIC;
     if (strcmp(mode, "byte") == 0)         return QR_MODE_BYTE;
     if (strcmp(mode, "kanji") == 0)        return QR_MODE_KANJI;
+    if (strcmp(mode, "auto") == 0)         return QR_MODE_AUTO;
     return -1;
 }
 
@@ -150,5 +153,10 @@ int parse_input(int argc, char* argv[], UserInput *args) {
         return -1;
     }
 
+    if (args->encoding == QR_MODE_AUTO) {
+        args->encoding = detect_encoding(args->data);
+    }
+
+    printf("Encoding Mode Set To: %d\n", args->encoding);
     return 0;
 }
