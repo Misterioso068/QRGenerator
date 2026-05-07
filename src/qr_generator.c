@@ -183,16 +183,6 @@ static uint8_t* build_final_sequence(uint8_t *codewords, const qr_ec_block_info_
     for (int i = 0; i < total_blocks; i++) {
         int block_size = (i < block_info->g1_blocks) ? block_info->g1_data : block_info->g2_data;
         ec_blocks[i] = reed_solomon_ecc(blocks[i], block_size, ec_cw);
-        
-        // pad if leading zero was trimmed
-        if (ec_blocks[i].coef_count < ec_cw) {
-            int diff = ec_cw - ec_blocks[i].coef_count;
-            uint8_t *padded = calloc(ec_cw, 1);
-            memcpy(padded + diff, ec_blocks[i].coef, ec_blocks[i].coef_count);
-            free(ec_blocks[i].coef);
-            ec_blocks[i].coef = padded;
-            ec_blocks[i].coef_count = ec_cw;
-        }
     }
     for (int byte = 0; byte < ec_cw; byte++) {
         for (int b = 0; b < total_blocks; b++) {

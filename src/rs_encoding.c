@@ -45,5 +45,15 @@ Polynomial reed_solomon_ecc(const uint8_t *data, int data_len, int ec_len) {
     destroy_poly(&msg);
     destroy_poly(&gen);
 
+    // pad remainder to exactly ec_len bytes
+    if (remainder.coef_count < ec_len) {
+        int diff = ec_len - remainder.coef_count;
+        uint8_t *padded_coef = calloc(ec_len, 1);
+        memcpy(padded_coef + diff, remainder.coef, remainder.coef_count);
+        free(remainder.coef);
+        remainder.coef = padded_coef;
+        remainder.coef_count = ec_len;
+    }
+
     return remainder;
 }
