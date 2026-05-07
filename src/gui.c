@@ -16,7 +16,7 @@ void destroy_gui(GUI *gui) {
     free(gui);
 }
 
-void handle_input(int *run) {
+void gui_handle_input(int *run) {
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         if (e.type == SDL_EVENT_QUIT) {
@@ -26,7 +26,7 @@ void handle_input(int *run) {
     }
 }
 
-void render_qr(GUI *gui, uint8_t **grid, int size, int module_size) {
+void gui_render_qr(GUI *gui, uint8_t **grid, int size, int module_size) {
     int quiet_zone = 4;
 
     // clear to white (this already covers the quiet zone)

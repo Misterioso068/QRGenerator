@@ -27,11 +27,11 @@ int main(int argc, char* argv[]) {
     if (!gui) {
         return -1;
     }
-    render_qr(gui, qr_code, size, module_size);
+    gui_render_qr(gui, qr_code, size, module_size);
 
     int run = 1;
     while (run) {
-        handle_input(&run);
+        gui_handle_input(&run);
     }
 
     destroy_gui(gui);

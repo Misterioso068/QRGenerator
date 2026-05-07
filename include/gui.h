@@ -11,7 +11,7 @@ typedef struct {
 
 GUI*  create_gui(const char *title, int width, int height);
 void  destroy_gui(GUI *gui);
-void handle_input(int *run);
-void  render_qr(GUI *gui, uint8_t **grid, int size, int module_size);
+void gui_handle_input(int *run);
+void  gui_render_qr(GUI *gui, uint8_t **grid, int size, int module_size);
 
 #endif // GUI_H
