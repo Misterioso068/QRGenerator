@@ -1,2 +1,0 @@
-all:
-	gcc src/main.c src/logger.c src/input_handler.c src/galois_field.c src/poly_math.c src/rs_encoding.c src/qr_generator.c src/gui.c -o build/qrgen -Iinclude -I/opt/homebrew/include -L/opt/homebrew/lib -Wl,-rpath,/opt/homebrew/lib -lSDL3
