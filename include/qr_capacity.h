@@ -1,35 +1,45 @@
+/**
+ * @file qr_capacity.h
+ * @brief QR code capacity tables, ECL/mode enums, and block structure.
+ *
+ * Contains the full character capacity table (versions 1-40, all ECL
+ * levels and encoding modes) and the error correction block info table.
+ * Also provides inline helper functions for capacity lookup and version
+ * selection.
+ */
+ 
 #ifndef QR_CAPACITY_H
 #define QR_CAPACITY_H
-
+ 
 #include <stdio.h>
-
-/*
- * QR Code Data Capacity Table
- *
- * Indexed as: QR_CAPACITY[version - 1][ecl][mode]
- *
- * version : 1–40  (use version - 1 as index)
- * ecl     : QR_ECL_L=0, QR_ECL_M=1, QR_ECL_Q=2, QR_ECL_H=3
- * mode    : QR_MODE_NUMERIC=0, QR_MODE_ALPHANUMERIC=1,
- *           QR_MODE_BYTE=2,    QR_MODE_KANJI=3
+ 
+/**
+ * @brief QR error correction level.
  */
-
 typedef enum {
-    QR_ECL_L = 0,
-    QR_ECL_M = 1,
-    QR_ECL_Q = 2,
-    QR_ECL_H = 3
+    QR_ECL_L = 0, /**< Low       (~7%  recovery) */
+    QR_ECL_M = 1, /**< Medium    (~15% recovery) */
+    QR_ECL_Q = 2, /**< Quartile  (~25% recovery) */
+    QR_ECL_H = 3  /**< High      (~30% recovery) */
 } qr_ecl_t;
-
+ 
+/**
+ * @brief QR data encoding mode.
+ */
 typedef enum {
-    QR_MODE_NUMERIC      = 0,
-    QR_MODE_ALPHANUMERIC = 1,
-    QR_MODE_BYTE         = 2,
-    QR_MODE_KANJI        = 3,
-    QR_MODE_AUTO         = 4
+    QR_MODE_NUMERIC      = 0, /**< Digits 0-9 only. Most compact for numbers. */
+    QR_MODE_ALPHANUMERIC = 1, /**< 0-9, A-Z, space, $ % * + - . / :          */
+    QR_MODE_BYTE         = 2, /**< Raw bytes / UTF-8. Handles any data.       */
+    QR_MODE_KANJI        = 3, /**< Shift JIS encoded Japanese characters.     */
+    QR_MODE_AUTO         = 4  /**< Auto-detect most compact mode for input.   */
 } qr_mode_t;
-
-/* [40 versions][4 ECLs][4 modes] */
+ 
+/**
+ * @brief Character capacity table indexed by [version-1][ecl][mode].
+ *
+ * Gives the maximum number of characters encodable for each combination
+ * of QR version (1-40), error correction level, and encoding mode.
+ */
 static const int QR_CAPACITY[40][4][4] = {
     /* Version 1 */
     {{ 41,  25,  17,  10},  /* L */
@@ -232,13 +242,18 @@ static const int QR_CAPACITY[40][4][4] = {
      {3993, 2420, 1663, 1024},
      {3057, 1852, 1273,  784}},
 };
-
-/*
- * Returns the maximum character capacity for the given parameters,
- * or -1 if any argument is out of range.
+ 
+/**
+ * @brief Returns the maximum character capacity for the given version, ECL, and mode.
  *
- * Example:
- *   int cap = qr_get_capacity(5, QR_ECL_M, QR_MODE_BYTE);  // → 84
+ * @param version QR version (1-40).
+ * @param ecl     Error correction level.
+ * @param mode    Encoding mode (not QR_MODE_AUTO).
+ * @return Maximum character capacity, or -1 if any argument is out of range.
+ *
+ * @code
+ * int cap = qr_get_capacity(5, QR_ECL_M, QR_MODE_BYTE);  // → 84
+ * @endcode
  */
 static inline int qr_get_capacity(int version, qr_ecl_t ecl, qr_mode_t mode)
 {
@@ -247,13 +262,18 @@ static inline int qr_get_capacity(int version, qr_ecl_t ecl, qr_mode_t mode)
     if (mode < QR_MODE_NUMERIC || mode > QR_MODE_KANJI) return -1;
     return QR_CAPACITY[version - 1][ecl][mode];
 }
-
-/*
- * Finds the minimum QR version that can hold `length` characters
- * for the given ECL and mode. Returns -1 if no version is sufficient.
+ 
+/**
+ * @brief Finds the minimum QR version that can encode the given number of characters.
  *
- * Example:
- *   int ver = qr_min_version(80, QR_ECL_M, QR_MODE_BYTE);  // → 5
+ * @param length Number of characters to encode.
+ * @param ecl    Error correction level.
+ * @param mode   Encoding mode (not QR_MODE_AUTO).
+ * @return Minimum version (1-40), or -1 if no version is sufficient.
+ *
+ * @code
+ * int ver = qr_min_version(80, QR_ECL_M, QR_MODE_BYTE);  // → 5
+ * @endcode
  */
 static inline int qr_min_version(int length, qr_ecl_t ecl, qr_mode_t mode)
 {
@@ -263,34 +283,26 @@ static inline int qr_min_version(int length, qr_ecl_t ecl, qr_mode_t mode)
     }
     return -1;
 }
-
-/*
- * QR Code Error Correction Block Table
+ 
+/**
+ * @brief Describes the error correction block structure for a version/ECL combination.
  *
- * Indexed as: QR_EC_BLOCKS[version - 1][ecl]
- *
- * Each entry contains:
- *   total_codewords  : total data codewords for this version+ECL
- *   ec_per_block     : number of EC codewords per block
- *   g1_blocks        : number of blocks in group 1
- *   g1_data          : data codewords per block in group 1
- *   g2_blocks        : number of blocks in group 2 (0 if none)
- *   g2_data          : data codewords per block in group 2 (0 if none)
- *
- * Use the same qr_ecl_t enum from qr_capacity.h:
- *   QR_ECL_L=0, QR_ECL_M=1, QR_ECL_Q=2, QR_ECL_H=3
+ * QR codes split data into one or two groups of blocks. Group 1 blocks
+ * each contain g1_data data codewords; Group 2 blocks each contain
+ * g2_data data codewords (g2_data = g1_data + 1 when both groups exist).
  */
-
 typedef struct {
-    int total_codewords;
-    int ec_per_block;
-    int g1_blocks;
-    int g1_data;
-    int g2_blocks; /* 0 if group 2 does not exist */
-    int g2_data;   /* 0 if group 2 does not exist */
+    int total_codewords; /**< Total data codewords for this version+ECL. */
+    int ec_per_block;    /**< Number of EC codewords per block. */
+    int g1_blocks;       /**< Number of blocks in group 1. */
+    int g1_data;         /**< Data codewords per block in group 1. */
+    int g2_blocks;       /**< Number of blocks in group 2 (0 if none). */
+    int g2_data;         /**< Data codewords per block in group 2 (0 if none). */
 } qr_ec_block_info_t;
-
-/* [40 versions][4 ECLs] */
+ 
+/**
+ * @brief EC block structure table indexed by [version-1][ecl].
+ */
 static const qr_ec_block_info_t QR_EC_BLOCKS[40][4] = {
     /* Version 1 */
     {{19,  7, 1, 19, 0,  0},   /* L */
@@ -493,14 +505,18 @@ static const qr_ec_block_info_t QR_EC_BLOCKS[40][4] = {
      {1666, 30, 34,  24, 34,  25},
      {1276, 30, 20,  15, 61,  16}},
 };
-
-/*
- * Returns a pointer to the block info for the given version and ECL,
- * or NULL if arguments are out of range.
+ 
+/**
+ * @brief Returns a pointer to the EC block info for the given version and ECL.
  *
- * Example:
- *   const qr_ec_block_info_t *b = qr_get_ec_blocks(5, QR_ECL_Q);
- *   // b->g1_blocks=2, b->g1_data=15, b->g2_blocks=2, b->g2_data=16
+ * @param version QR version (1-40).
+ * @param ecl     Error correction level.
+ * @return Pointer to qr_ec_block_info_t, or NULL if arguments are out of range.
+ *
+ * @code
+ * const qr_ec_block_info_t *b = qr_get_ec_blocks(5, QR_ECL_Q);
+ * // b->g1_blocks=2, b->g1_data=15, b->g2_blocks=2, b->g2_data=16
+ * @endcode
  */
 static inline const qr_ec_block_info_t *qr_get_ec_blocks(int version, qr_ecl_t ecl)
 {
@@ -508,13 +524,17 @@ static inline const qr_ec_block_info_t *qr_get_ec_blocks(int version, qr_ecl_t e
     if (ecl < QR_ECL_L || ecl > QR_ECL_H)  return NULL;
     return &QR_EC_BLOCKS[version - 1][ecl];
 }
-
-/*
- * Returns the total number of blocks (group1 + group2) for a given
- * version and ECL, or -1 on invalid input.
+ 
+/**
+ * @brief Returns the total number of blocks (group 1 + group 2).
  *
- * Example:
- *   int n = qr_total_blocks(7, QR_ECL_Q);  // → 6  (2 + 4)
+ * @param version QR version (1-40).
+ * @param ecl     Error correction level.
+ * @return Total block count, or -1 on invalid input.
+ *
+ * @code
+ * int n = qr_total_blocks(7, QR_ECL_Q);  // → 6  (2 + 4)
+ * @endcode
  */
 static inline int qr_total_blocks(int version, qr_ecl_t ecl)
 {
@@ -522,5 +542,5 @@ static inline int qr_total_blocks(int version, qr_ecl_t ecl)
     if (!b) return -1;
     return b->g1_blocks + b->g2_blocks;
 }
-
-#endif /* QR_CAPACITY_H */
+ 
+#endif // QR_CAPACITY_H

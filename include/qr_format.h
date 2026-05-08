@@ -1,12 +1,25 @@
+/**
+ * @file qr_format.h
+ * @brief QR format information strings, version strings, and alignment positions.
+ *
+ * Contains precomputed lookup tables for:
+ * - Format information strings (ECL + mask, all 32 combinations)
+ * - Version information strings (versions 7-40)
+ * - Alignment pattern center positions (versions 1-40)
+ */
+ 
 #ifndef QR_FORMAT_H
 #define QR_FORMAT_H
-
+ 
 #include <stddef.h>
 #include "qr_capacity.h"
-
-/* Format information strings [4 ECL levels][8 mask patterns]
- * Order: L=0, M=1, Q=2, H=3 (matches qr_ecl_t enum)
- * Bits are MSB first
+ 
+/**
+ * @brief Format information strings indexed by [ecl][mask].
+ *
+ * Each string is 15 bits (MSB first), encoding the ECL and mask pattern
+ * with BCH error correction, XORed with the mask pattern 101010000010010.
+ * Order matches qr_ecl_t: L=0, M=1, Q=2, H=3.
  */
 static const char *QR_FORMAT_STRINGS[4][8] = {
     /* L */
@@ -22,10 +35,13 @@ static const char *QR_FORMAT_STRINGS[4][8] = {
     {"001011010001001", "001001110111110", "001110011100111", "001100111010000",
      "000011101100010", "000001001010101", "000110100001100", "000100000111011"},
 };
-
-/* Version information strings [versions 7-40]
- * Index 0 = version 7, index 1 = version 8, etc.
- * Only needed for version 7+
+ 
+/**
+ * @brief Version information strings for versions 7-40.
+ *
+ * Each string is 18 bits (MSB first), encoding the version number with
+ * BCH(18,6) error correction. Index 0 = version 7, index 33 = version 40.
+ * Only required for QR versions 7 and above.
  */
 static const char *QR_VERSION_STRINGS[34] = {
     "000111110010010100",  /* version 7  */
@@ -63,22 +79,34 @@ static const char *QR_VERSION_STRINGS[34] = {
     "100111010101000001",  /* version 39 */
     "101000110001101001",  /* version 40 */
 };
-
-/* Helper to get format string */
+ 
+/**
+ * @brief Returns the format information string for the given ECL and mask.
+ * @param ecl  Error correction level.
+ * @param mask Mask pattern index (0-7).
+ * @return 15-character binary string (MSB first).
+ */
 static inline const char* qr_get_format_string(qr_ecl_t ecl, int mask) {
     return QR_FORMAT_STRINGS[ecl][mask];
 }
-
-/* Helper to get version string (only valid for version >= 7) */
+ 
+/**
+ * @brief Returns the version information string for the given version.
+ * @param version QR version (must be >= 7).
+ * @return 18-character binary string (MSB first), or NULL if version < 7 or > 40.
+ */
 static inline const char* qr_get_version_string(int version) {
     if (version < 7 || version > 40) return NULL;
     return QR_VERSION_STRINGS[version - 7];
 }
-
-/* Alignment pattern center coordinates per version
- * Index 0 = version 1 (none), terminated by 0
- * For versions with multiple positions, place pattern at every
- * combination of row/col EXCEPT where it overlaps finder patterns
+ 
+/**
+ * @brief Alignment pattern center coordinates per version.
+ *
+ * Each row lists the row/column coordinates used to generate all alignment
+ * pattern center positions by taking every combination of (row[i], row[j]).
+ * Positions that would overlap finder patterns must be skipped.
+ * Terminated by 0. Version 1 has no alignment patterns ({0}).
  */
 static const int QR_ALIGNMENT_POSITIONS[40][8] = {
     {0},                        /* version 1  - none */
@@ -122,5 +150,5 @@ static const int QR_ALIGNMENT_POSITIONS[40][8] = {
     {6, 26, 54, 82, 110, 138, 166, 0}, /* version 39 */
     {6, 30, 58, 86, 114, 142, 170, 0}, /* version 40 */
 };
-
+ 
 #endif // QR_FORMAT_H
