@@ -23,3 +23,13 @@ add_executable(qrgen ${SOURCES})
 target_include_directories(qrgen PRIVATE include)
 
 target_link_libraries(qrgen PRIVATE SDL3::SDL3)
+
+# Automatically copy runtime DLLs beside the executable on Windows
+if (WIN32)
+    add_custom_command(TARGET qrgen POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_RUNTIME_DLLS:qrgen>
+            $<TARGET_FILE_DIR:qrgen>
+        COMMAND_EXPAND_LISTS
+    )
+endif()

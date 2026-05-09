@@ -52,6 +52,7 @@ Download the **SDL3 development libraries** from the [SDL3 releases page](https:
 cmake -B build -DSDL3_DIR="C:/path/to/SDL3/cmake"
 cmake --build build
 ```
+The build system automatically copies required SDL3 runtime DLLs beside the executable after build.
 
 ## Building
 
